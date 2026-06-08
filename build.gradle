@@ -34,8 +34,7 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-	include modImplementation("dev.kosmx.player-anim:player-animation-lib-fabric:${project.player_anim_version}")
-	
+	modImplementation "dev.kosmx.player-anim:player-animation-lib-fabric:${project.player_anim_version}"
 }
 
 processResources {
