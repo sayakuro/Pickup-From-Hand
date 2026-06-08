@@ -1,25 +1,22 @@
 package net.putterz.pickuphand.server;
 
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.player.UseEntityCallback;
-import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
-import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.putterz.pickuphand.network.PickupHandPackets;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -35,98 +32,124 @@ public final class SecureGiveHandler {
 	}
 
 	public static void register() {
-		ServerPlayNetworking.registerGlobalReceiver(PickupHandPackets.GIVE_ITEM, (server, player, handler, buf, responseSender) -> server.execute(() -> activateOffer(player)));
-		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> syncActiveOffers(handler.player));
-		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> removeDisconnectedOffers(handler.player, server));
-		ServerTickEvents.END_SERVER_TICK.register(SecureGiveHandler::tickOffers);
-		UseEntityCallback.EVENT.register(SecureGiveHandler::tryAcceptOffer);
+		MinecraftForge.EVENT_BUS.register(SecureGiveHandler.class);
 	}
 
-	private static void activateOffer(ServerPlayerEntity giver) {
+	public static void activateOffer(ServerPlayer giver) {
 		if (giver.isSpectator()) {
 			clearOffer(giver);
 			return;
 		}
 
-		Hand offerHand = getOfferHand(giver);
+		InteractionHand offerHand = getOfferHand(giver);
 		if (offerHand == null) {
 			clearOffer(giver);
 			return;
 		}
 
-		ServerPlayerEntity receiver = findLookedAtPlayer(giver);
+		ServerPlayer receiver = findLookedAtPlayer(giver);
 		if (receiver == null) {
 			clearOffer(giver);
 			return;
 		}
 
-		ACTIVE_OFFERS.put(giver.getUuid(), new Offer(receiver.getUuid(), offerHand, giver.getStackInHand(offerHand).copy()));
+		ACTIVE_OFFERS.put(giver.getUUID(), new Offer(receiver.getUUID(), offerHand, giver.getItemInHand(offerHand).copy()));
 		syncOfferState(giver, true, offerHand);
 		notifyReceiver(receiver);
 	}
 
-	private static ActionResult tryAcceptOffer(PlayerEntity receiver, World world, Hand hand, Entity entity, EntityHitResult hitResult) {
-		if (world.isClient || !(receiver instanceof ServerPlayerEntity serverReceiver) || !(entity instanceof ServerPlayerEntity giver)) {
-			return ActionResult.PASS;
+	@SubscribeEvent
+	public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
+		InteractionResult result = tryAcceptOffer(event.getEntity(), event.getLevel(), event.getHand(), event.getTarget());
+		if (result.consumesAction()) {
+			event.setCancellationResult(result);
+			event.setCanceled(true);
+		}
+	}
+
+	@SubscribeEvent
+	public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+		if (event.getEntity() instanceof ServerPlayer player) {
+			syncActiveOffers(player);
+		}
+	}
+
+	@SubscribeEvent
+	public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+		if (event.getEntity() instanceof ServerPlayer player) {
+			removeDisconnectedOffers(player, player.server);
+		}
+	}
+
+	@SubscribeEvent
+	public static void onServerTick(TickEvent.ServerTickEvent event) {
+		if (event.phase == TickEvent.Phase.END) {
+			tickOffers(event.getServer());
+		}
+	}
+
+	private static InteractionResult tryAcceptOffer(Player receiver, Level level, InteractionHand hand, Entity entity) {
+		if (level.isClientSide || !(receiver instanceof ServerPlayer serverReceiver) || !(entity instanceof ServerPlayer giver)) {
+			return InteractionResult.PASS;
 		}
 
 		if (serverReceiver == giver || serverReceiver.isSpectator() || giver.isSpectator()) {
-			return ActionResult.PASS;
+			return InteractionResult.PASS;
 		}
 
-		Offer offer = ACTIVE_OFFERS.get(giver.getUuid());
-		if (offer == null || !offer.receiverId().equals(serverReceiver.getUuid())) {
-			return ActionResult.PASS;
+		Offer offer = ACTIVE_OFFERS.get(giver.getUUID());
+		if (offer == null || !offer.receiverId().equals(serverReceiver.getUUID())) {
+			return InteractionResult.PASS;
 		}
 
 		if (!isOfferValid(giver, serverReceiver, offer)) {
 			clearOffer(giver);
-			return ActionResult.PASS;
+			return InteractionResult.PASS;
 		}
 
 		if (!isLookingAt(serverReceiver, giver)) {
-			return ActionResult.SUCCESS;
+			return InteractionResult.SUCCESS;
 		}
 
-		if (!serverReceiver.getStackInHand(hand).isEmpty()) {
-			return ActionResult.PASS;
+		if (!serverReceiver.getItemInHand(hand).isEmpty()) {
+			return InteractionResult.PASS;
 		}
 
-		ItemStack receivedStack = giver.getStackInHand(offer.hand()).copy();
-		serverReceiver.setStackInHand(hand, receivedStack);
-		giver.setStackInHand(offer.hand(), ItemStack.EMPTY);
+		ItemStack receivedStack = giver.getItemInHand(offer.hand()).copy();
+		serverReceiver.setItemInHand(hand, receivedStack);
+		giver.setItemInHand(offer.hand(), ItemStack.EMPTY);
 		clearOffer(giver);
-		return ActionResult.SUCCESS;
+		return InteractionResult.SUCCESS;
 	}
 
-	private static Hand getOfferHand(ServerPlayerEntity giver) {
-		if (!giver.getMainHandStack().isEmpty()) {
-			return Hand.MAIN_HAND;
+	private static InteractionHand getOfferHand(ServerPlayer giver) {
+		if (!giver.getMainHandItem().isEmpty()) {
+			return InteractionHand.MAIN_HAND;
 		}
 
-		if (!giver.getOffHandStack().isEmpty()) {
-			return Hand.OFF_HAND;
+		if (!giver.getOffhandItem().isEmpty()) {
+			return InteractionHand.OFF_HAND;
 		}
 
 		return null;
 	}
 
-	private static void notifyReceiver(ServerPlayerEntity receiver) {
-		receiver.playSound(SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 0.35F, 1.15F);
+	private static void notifyReceiver(ServerPlayer receiver) {
+		receiver.playNotifySound(SoundEvents.AMETHYST_BLOCK_CHIME, SoundSource.PLAYERS, 0.35F, 1.15F);
 	}
 
 	private static void tickOffers(MinecraftServer server) {
 		Iterator<Map.Entry<UUID, Offer>> iterator = ACTIVE_OFFERS.entrySet().iterator();
 		while (iterator.hasNext()) {
 			Map.Entry<UUID, Offer> entry = iterator.next();
-			ServerPlayerEntity giver = server.getPlayerManager().getPlayer(entry.getKey());
+			ServerPlayer giver = server.getPlayerList().getPlayer(entry.getKey());
 
 			if (giver == null) {
 				iterator.remove();
 				continue;
 			}
 
-			ServerPlayerEntity receiver = server.getPlayerManager().getPlayer(entry.getValue().receiverId());
+			ServerPlayer receiver = server.getPlayerList().getPlayer(entry.getValue().receiverId());
 			if (!isOfferValid(giver, receiver, entry.getValue())) {
 				iterator.remove();
 				syncOfferState(giver, false, entry.getValue().hand());
@@ -134,8 +157,8 @@ public final class SecureGiveHandler {
 		}
 	}
 
-	private static void clearOffer(ServerPlayerEntity giver) {
-		Offer removedOffer = ACTIVE_OFFERS.remove(giver.getUuid());
+	private static void clearOffer(ServerPlayer giver) {
+		Offer removedOffer = ACTIVE_OFFERS.remove(giver.getUUID());
 		if (removedOffer == null) {
 			return;
 		}
@@ -143,57 +166,53 @@ public final class SecureGiveHandler {
 		syncOfferState(giver, false, removedOffer.hand());
 	}
 
-	private static void syncActiveOffers(ServerPlayerEntity player) {
+	private static void syncActiveOffers(ServerPlayer player) {
 		for (Map.Entry<UUID, Offer> entry : ACTIVE_OFFERS.entrySet()) {
-			ServerPlayerEntity giver = player.server.getPlayerManager().getPlayer(entry.getKey());
+			ServerPlayer giver = player.server.getPlayerList().getPlayer(entry.getKey());
 			if (giver != null) {
-				syncOfferState(player, giver.getUuid(), true, entry.getValue().hand());
+				syncOfferState(player, giver.getUUID(), true, entry.getValue().hand());
 			}
 		}
 	}
 
-	private static void removeDisconnectedOffers(ServerPlayerEntity disconnectedPlayer, MinecraftServer server) {
-		Offer ownOffer = ACTIVE_OFFERS.remove(disconnectedPlayer.getUuid());
+	private static void removeDisconnectedOffers(ServerPlayer disconnectedPlayer, MinecraftServer server) {
+		Offer ownOffer = ACTIVE_OFFERS.remove(disconnectedPlayer.getUUID());
 		if (ownOffer != null) {
-			syncOfferState(server, disconnectedPlayer.getUuid(), false, ownOffer.hand());
+			syncOfferState(server, disconnectedPlayer.getUUID(), false, ownOffer.hand());
 		}
 
 		Iterator<Map.Entry<UUID, Offer>> iterator = ACTIVE_OFFERS.entrySet().iterator();
 		while (iterator.hasNext()) {
 			Map.Entry<UUID, Offer> entry = iterator.next();
-			if (entry.getValue().receiverId().equals(disconnectedPlayer.getUuid())) {
+			if (entry.getValue().receiverId().equals(disconnectedPlayer.getUUID())) {
 				iterator.remove();
 				syncOfferState(server, entry.getKey(), false, entry.getValue().hand());
 			}
 		}
 	}
 
-	private static void syncOfferState(ServerPlayerEntity giver, boolean active, Hand hand) {
-		for (ServerPlayerEntity player : PlayerLookup.world(giver.getServerWorld())) {
-			syncOfferState(player, giver.getUuid(), active, hand);
+	private static void syncOfferState(ServerPlayer giver, boolean active, InteractionHand hand) {
+		for (ServerPlayer player : giver.serverLevel().players()) {
+			syncOfferState(player, giver.getUUID(), active, hand);
 		}
 	}
 
-	private static void syncOfferState(MinecraftServer server, UUID giverId, boolean active, Hand hand) {
-		for (ServerPlayerEntity player : PlayerLookup.all(server)) {
+	private static void syncOfferState(MinecraftServer server, UUID giverId, boolean active, InteractionHand hand) {
+		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 			syncOfferState(player, giverId, active, hand);
 		}
 	}
 
-	private static void syncOfferState(ServerPlayerEntity player, UUID giverId, boolean active, Hand hand) {
-		PacketByteBuf buf = PacketByteBufs.create();
-		buf.writeUuid(giverId);
-		buf.writeBoolean(active);
-		buf.writeEnumConstant(hand);
-		ServerPlayNetworking.send(player, PickupHandPackets.OFFER_STATE, buf);
+	private static void syncOfferState(ServerPlayer player, UUID giverId, boolean active, InteractionHand hand) {
+		PickupHandPackets.sendOfferState(player, giverId, active, hand);
 	}
 
-	private static ServerPlayerEntity findLookedAtPlayer(ServerPlayerEntity giver) {
-		ServerPlayerEntity bestTarget = null;
+	private static ServerPlayer findLookedAtPlayer(ServerPlayer giver) {
+		ServerPlayer bestTarget = null;
 		double bestDot = LOOK_DOT_THRESHOLD;
 
-		for (ServerPlayerEntity candidate : giver.getServerWorld().getPlayers()) {
-			if (candidate == giver || candidate.isSpectator() || !giver.canSee(candidate) || giver.squaredDistanceTo(candidate) > OFFER_RANGE_SQUARED) {
+		for (ServerPlayer candidate : giver.serverLevel().players()) {
+			if (candidate == giver || candidate.isSpectator() || !giver.hasLineOfSight(candidate) || giver.distanceToSqr(candidate) > OFFER_RANGE_SQUARED) {
 				continue;
 			}
 
@@ -207,32 +226,32 @@ public final class SecureGiveHandler {
 		return bestTarget;
 	}
 
-	private static boolean isOfferValid(ServerPlayerEntity giver, ServerPlayerEntity receiver, Offer offer) {
+	private static boolean isOfferValid(ServerPlayer giver, ServerPlayer receiver, Offer offer) {
 		return receiver != null
-				&& giver.getWorld() == receiver.getWorld()
+				&& giver.level() == receiver.level()
 				&& !giver.isSpectator()
 				&& !receiver.isSpectator()
-				&& giver.canSee(receiver)
-				&& giver.squaredDistanceTo(receiver) <= OFFER_RANGE_SQUARED
+				&& giver.hasLineOfSight(receiver)
+				&& giver.distanceToSqr(receiver) <= OFFER_RANGE_SQUARED
 				&& isOfferedStackStillHeld(giver, offer)
 				&& isLookingAt(giver, receiver);
 	}
 
-	private static boolean isOfferedStackStillHeld(ServerPlayerEntity giver, Offer offer) {
-		ItemStack currentStack = giver.getStackInHand(offer.hand());
-		return !currentStack.isEmpty() && ItemStack.canCombine(currentStack, offer.offeredStack());
+	private static boolean isOfferedStackStillHeld(ServerPlayer giver, Offer offer) {
+		ItemStack currentStack = giver.getItemInHand(offer.hand());
+		return !currentStack.isEmpty() && ItemStack.isSameItemSameTags(currentStack, offer.offeredStack());
 	}
 
-	private static boolean isLookingAt(ServerPlayerEntity receiver, ServerPlayerEntity giver) {
+	private static boolean isLookingAt(ServerPlayer receiver, ServerPlayer giver) {
 		return getLookDot(receiver, giver) >= LOOK_DOT_THRESHOLD;
 	}
 
-	private static double getLookDot(ServerPlayerEntity receiver, ServerPlayerEntity giver) {
-		Vec3d lookDirection = receiver.getRotationVec(1.0F).normalize();
-		Vec3d directionToGiver = giver.getEyePos().subtract(receiver.getEyePos()).normalize();
-		return lookDirection.dotProduct(directionToGiver);
+	private static double getLookDot(ServerPlayer receiver, ServerPlayer giver) {
+		Vec3 lookDirection = receiver.getViewVector(1.0F).normalize();
+		Vec3 directionToGiver = giver.getEyePosition().subtract(receiver.getEyePosition()).normalize();
+		return lookDirection.dot(directionToGiver);
 	}
 
-	private record Offer(UUID receiverId, Hand hand, ItemStack offeredStack) {
+	private record Offer(UUID receiverId, InteractionHand hand, ItemStack offeredStack) {
 	}
 }

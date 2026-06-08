@@ -1,13 +1,15 @@
 package net.putterz.pickuphand;
 
-import net.fabricmc.api.ModInitializer;
+import net.putterz.pickuphand.network.PickupHandPackets;
 import net.putterz.pickuphand.server.SecureGiveHandler;
+import net.minecraftforge.fml.common.Mod;
 
-public class PickupHandMod implements ModInitializer {
+@Mod(PickupHandMod.MOD_ID)
+public class PickupHandMod {
 	public static final String MOD_ID = "pickuphand";
 
-	@Override
-	public void onInitialize() {
+	public PickupHandMod() {
+		PickupHandPackets.register();
 		SecureGiveHandler.register();
 	}
 }
