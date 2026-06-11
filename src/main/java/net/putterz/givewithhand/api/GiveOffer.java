@@ -16,6 +16,6 @@ public record GiveOffer(UUID receiverId, Hand hand, ItemStack offeredStack) {
 	}
 
 	public boolean matchesHeldStack(ItemStack stack) {
-		return !stack.isEmpty() && ItemStack.canCombine(stack, offeredStack);
+		return !stack.isEmpty() && ItemStack.areItemsAndComponentsEqual(stack, offeredStack);
 	}
 }

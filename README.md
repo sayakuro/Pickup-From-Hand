@@ -14,8 +14,8 @@ Instead of dropping an item on the ground, the giver holds the item out. The rec
 
 ## Installation
 
-Minecraft Version: Fabric 1.20.1
+Minecraft Version: Fabric 1.21.11
 
 ## Required Dependency
 
-[Player Animator](https://modrinth.com/mod/playeranimator)
+[Fabric API](https://modrinth.com/mod/fabric-api)

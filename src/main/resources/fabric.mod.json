@@ -21,14 +21,10 @@
 			"net.putterz.givewithhand.client.GiveWithHandClient"
 		]
 	},
-	"mixins": [
-		"givewithhand.mixins.json"
-	],
 	"depends": {
-		"fabricloader": ">=0.15.11",
-		"minecraft": "~1.20.1",
-		"java": ">=17",
-		"fabric-api": "*",
-		"player-animator": ">=1.0.2-rc1+1.20"
+		"fabricloader": ">=0.16.14",
+		"minecraft": "=1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
 	}
 }

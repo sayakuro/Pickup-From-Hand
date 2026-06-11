@@ -2,17 +2,14 @@ package net.putterz.givewithhand.server;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
-import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
-import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -37,7 +34,8 @@ public final class GiveOfferManager {
 	}
 
 	public static void register() {
-		ServerPlayNetworking.registerGlobalReceiver(GiveWithHandPackets.GIVE_ITEM, (server, player, handler, buf, responseSender) -> server.execute(() -> offerItemToLookedAtPlayer(player)));
+		GiveWithHandPackets.registerPayloads();
+		ServerPlayNetworking.registerGlobalReceiver(GiveWithHandPackets.GiveItemPayload.ID, (payload, context) -> offerItemToLookedAtPlayer(context.player()));
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> syncActiveOffers(handler.player));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> removeDisconnectedOffers(handler.player, server));
 		ServerTickEvents.END_SERVER_TICK.register(GiveOfferManager::tickOffers);
@@ -86,7 +84,7 @@ public final class GiveOfferManager {
 	}
 
 	private static ActionResult tryAcceptOffer(PlayerEntity receiver, World world, Hand hand, Entity entity, EntityHitResult hitResult) {
-		if (world.isClient || !(receiver instanceof ServerPlayerEntity serverReceiver) || !(entity instanceof ServerPlayerEntity giver)) {
+		if (world.isClient() || !(receiver instanceof ServerPlayerEntity serverReceiver) || !(entity instanceof ServerPlayerEntity giver)) {
 			return ActionResult.PASS;
 		}
 
@@ -132,7 +130,7 @@ public final class GiveOfferManager {
 	}
 
 	private static void notifyReceiver(ServerPlayerEntity receiver) {
-		receiver.playSound(SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 0.35F, 1.15F);
+		receiver.playSound(SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 0.35F, 1.15F);
 	}
 
 	private static void tickOffers(MinecraftServer server) {
@@ -156,7 +154,7 @@ public final class GiveOfferManager {
 
 	private static void syncActiveOffers(ServerPlayerEntity player) {
 		for (Map.Entry<UUID, GiveOffer> entry : ACTIVE_OFFERS.entrySet()) {
-			ServerPlayerEntity giver = player.server.getPlayerManager().getPlayer(entry.getKey());
+			ServerPlayerEntity giver = player.getEntityWorld().getServer().getPlayerManager().getPlayer(entry.getKey());
 			if (giver != null) {
 				syncOfferState(player, giver.getUuid(), true, entry.getValue().hand());
 			}
@@ -180,7 +178,7 @@ public final class GiveOfferManager {
 	}
 
 	private static void syncOfferState(ServerPlayerEntity giver, boolean active, Hand hand) {
-		for (ServerPlayerEntity player : PlayerLookup.world(giver.getServerWorld())) {
+		for (ServerPlayerEntity player : PlayerLookup.world(giver.getEntityWorld())) {
 			syncOfferState(player, giver.getUuid(), active, hand);
 		}
 	}
@@ -192,18 +190,14 @@ public final class GiveOfferManager {
 	}
 
 	private static void syncOfferState(ServerPlayerEntity player, UUID giverId, boolean active, Hand hand) {
-		PacketByteBuf buf = PacketByteBufs.create();
-		buf.writeUuid(giverId);
-		buf.writeBoolean(active);
-		buf.writeEnumConstant(hand);
-		ServerPlayNetworking.send(player, GiveWithHandPackets.OFFER_STATE, buf);
+		ServerPlayNetworking.send(player, new GiveWithHandPackets.OfferStatePayload(giverId, active, hand));
 	}
 
 	private static ServerPlayerEntity findLookedAtPlayer(ServerPlayerEntity giver) {
 		ServerPlayerEntity bestTarget = null;
 		double bestDot = LOOK_DOT_THRESHOLD;
 
-		for (ServerPlayerEntity candidate : giver.getServerWorld().getPlayers()) {
+		for (ServerPlayerEntity candidate : giver.getEntityWorld().getPlayers()) {
 			if (candidate == giver || candidate.isSpectator() || !giver.canSee(candidate) || giver.squaredDistanceTo(candidate) > OFFER_RANGE_SQUARED) {
 				continue;
 			}
@@ -220,7 +214,7 @@ public final class GiveOfferManager {
 
 	private static boolean isOfferValid(ServerPlayerEntity giver, ServerPlayerEntity receiver, GiveOffer offer) {
 		return receiver != null
-				&& giver.getWorld() == receiver.getWorld()
+				&& giver.getEntityWorld() == receiver.getEntityWorld()
 				&& !giver.isSpectator()
 				&& !receiver.isSpectator()
 				&& giver.canSee(receiver)

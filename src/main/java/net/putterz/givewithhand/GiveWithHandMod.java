@@ -8,7 +8,7 @@ public class GiveWithHandMod implements ModInitializer {
 	public static final String MOD_ID = "givewithhand";
 
 	public static Identifier id(String path) {
-		return new Identifier(MOD_ID, path);
+		return Identifier.of(MOD_ID, path);
 	}
 
 	@Override
