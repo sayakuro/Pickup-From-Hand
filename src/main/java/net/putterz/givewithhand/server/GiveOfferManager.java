@@ -1,4 +1,4 @@
-package net.putterz.pickuphand.server;
+package net.putterz.givewithhand.server;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
@@ -19,50 +19,70 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
-import net.putterz.pickuphand.network.PickupHandPackets;
+import net.putterz.givewithhand.api.GiveOffer;
+import net.putterz.givewithhand.network.GiveWithHandPackets;
 
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
-public final class SecureGiveHandler {
+public final class GiveOfferManager {
 	private static final double LOOK_DOT_THRESHOLD = 0.75D;
 	private static final double OFFER_RANGE_SQUARED = 4.0D;
-	private static final Map<UUID, Offer> ACTIVE_OFFERS = new HashMap<>();
+	private static final Map<UUID, GiveOffer> ACTIVE_OFFERS = new HashMap<>();
 
-	private SecureGiveHandler() {
+	private GiveOfferManager() {
 	}
 
 	public static void register() {
-		ServerPlayNetworking.registerGlobalReceiver(PickupHandPackets.GIVE_ITEM, (server, player, handler, buf, responseSender) -> server.execute(() -> activateOffer(player)));
+		ServerPlayNetworking.registerGlobalReceiver(GiveWithHandPackets.GIVE_ITEM, (server, player, handler, buf, responseSender) -> server.execute(() -> offerItemToLookedAtPlayer(player)));
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> syncActiveOffers(handler.player));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> removeDisconnectedOffers(handler.player, server));
-		ServerTickEvents.END_SERVER_TICK.register(SecureGiveHandler::tickOffers);
-		UseEntityCallback.EVENT.register(SecureGiveHandler::tryAcceptOffer);
+		ServerTickEvents.END_SERVER_TICK.register(GiveOfferManager::tickOffers);
+		UseEntityCallback.EVENT.register(GiveOfferManager::tryAcceptOffer);
 	}
 
-	private static void activateOffer(ServerPlayerEntity giver) {
+	public static boolean offerItemToLookedAtPlayer(ServerPlayerEntity giver) {
 		if (giver.isSpectator()) {
 			clearOffer(giver);
-			return;
+			return false;
 		}
 
 		Hand offerHand = getOfferHand(giver);
 		if (offerHand == null) {
 			clearOffer(giver);
-			return;
+			return false;
 		}
 
 		ServerPlayerEntity receiver = findLookedAtPlayer(giver);
 		if (receiver == null) {
 			clearOffer(giver);
+			return false;
+		}
+
+		ACTIVE_OFFERS.put(giver.getUuid(), new GiveOffer(receiver.getUuid(), offerHand, giver.getStackInHand(offerHand)));
+		syncOfferState(giver, true, offerHand);
+		notifyReceiver(receiver);
+		return true;
+	}
+
+	public static void clearOffer(ServerPlayerEntity giver) {
+		GiveOffer removedOffer = ACTIVE_OFFERS.remove(giver.getUuid());
+		if (removedOffer == null) {
 			return;
 		}
 
-		ACTIVE_OFFERS.put(giver.getUuid(), new Offer(receiver.getUuid(), offerHand, giver.getStackInHand(offerHand).copy()));
-		syncOfferState(giver, true, offerHand);
-		notifyReceiver(receiver);
+		syncOfferState(giver, false, removedOffer.hand());
+	}
+
+	public static boolean hasActiveOffer(ServerPlayerEntity giver) {
+		return ACTIVE_OFFERS.containsKey(giver.getUuid());
+	}
+
+	public static Optional<GiveOffer> getActiveOffer(ServerPlayerEntity giver) {
+		return Optional.ofNullable(ACTIVE_OFFERS.get(giver.getUuid()));
 	}
 
 	private static ActionResult tryAcceptOffer(PlayerEntity receiver, World world, Hand hand, Entity entity, EntityHitResult hitResult) {
@@ -74,7 +94,7 @@ public final class SecureGiveHandler {
 			return ActionResult.PASS;
 		}
 
-		Offer offer = ACTIVE_OFFERS.get(giver.getUuid());
+		GiveOffer offer = ACTIVE_OFFERS.get(giver.getUuid());
 		if (offer == null || !offer.receiverId().equals(serverReceiver.getUuid())) {
 			return ActionResult.PASS;
 		}
@@ -116,9 +136,9 @@ public final class SecureGiveHandler {
 	}
 
 	private static void tickOffers(MinecraftServer server) {
-		Iterator<Map.Entry<UUID, Offer>> iterator = ACTIVE_OFFERS.entrySet().iterator();
+		Iterator<Map.Entry<UUID, GiveOffer>> iterator = ACTIVE_OFFERS.entrySet().iterator();
 		while (iterator.hasNext()) {
-			Map.Entry<UUID, Offer> entry = iterator.next();
+			Map.Entry<UUID, GiveOffer> entry = iterator.next();
 			ServerPlayerEntity giver = server.getPlayerManager().getPlayer(entry.getKey());
 
 			if (giver == null) {
@@ -134,17 +154,8 @@ public final class SecureGiveHandler {
 		}
 	}
 
-	private static void clearOffer(ServerPlayerEntity giver) {
-		Offer removedOffer = ACTIVE_OFFERS.remove(giver.getUuid());
-		if (removedOffer == null) {
-			return;
-		}
-
-		syncOfferState(giver, false, removedOffer.hand());
-	}
-
 	private static void syncActiveOffers(ServerPlayerEntity player) {
-		for (Map.Entry<UUID, Offer> entry : ACTIVE_OFFERS.entrySet()) {
+		for (Map.Entry<UUID, GiveOffer> entry : ACTIVE_OFFERS.entrySet()) {
 			ServerPlayerEntity giver = player.server.getPlayerManager().getPlayer(entry.getKey());
 			if (giver != null) {
 				syncOfferState(player, giver.getUuid(), true, entry.getValue().hand());
@@ -153,14 +164,14 @@ public final class SecureGiveHandler {
 	}
 
 	private static void removeDisconnectedOffers(ServerPlayerEntity disconnectedPlayer, MinecraftServer server) {
-		Offer ownOffer = ACTIVE_OFFERS.remove(disconnectedPlayer.getUuid());
+		GiveOffer ownOffer = ACTIVE_OFFERS.remove(disconnectedPlayer.getUuid());
 		if (ownOffer != null) {
 			syncOfferState(server, disconnectedPlayer.getUuid(), false, ownOffer.hand());
 		}
 
-		Iterator<Map.Entry<UUID, Offer>> iterator = ACTIVE_OFFERS.entrySet().iterator();
+		Iterator<Map.Entry<UUID, GiveOffer>> iterator = ACTIVE_OFFERS.entrySet().iterator();
 		while (iterator.hasNext()) {
-			Map.Entry<UUID, Offer> entry = iterator.next();
+			Map.Entry<UUID, GiveOffer> entry = iterator.next();
 			if (entry.getValue().receiverId().equals(disconnectedPlayer.getUuid())) {
 				iterator.remove();
 				syncOfferState(server, entry.getKey(), false, entry.getValue().hand());
@@ -185,7 +196,7 @@ public final class SecureGiveHandler {
 		buf.writeUuid(giverId);
 		buf.writeBoolean(active);
 		buf.writeEnumConstant(hand);
-		ServerPlayNetworking.send(player, PickupHandPackets.OFFER_STATE, buf);
+		ServerPlayNetworking.send(player, GiveWithHandPackets.OFFER_STATE, buf);
 	}
 
 	private static ServerPlayerEntity findLookedAtPlayer(ServerPlayerEntity giver) {
@@ -207,7 +218,7 @@ public final class SecureGiveHandler {
 		return bestTarget;
 	}
 
-	private static boolean isOfferValid(ServerPlayerEntity giver, ServerPlayerEntity receiver, Offer offer) {
+	private static boolean isOfferValid(ServerPlayerEntity giver, ServerPlayerEntity receiver, GiveOffer offer) {
 		return receiver != null
 				&& giver.getWorld() == receiver.getWorld()
 				&& !giver.isSpectator()
@@ -218,9 +229,9 @@ public final class SecureGiveHandler {
 				&& isLookingAt(giver, receiver);
 	}
 
-	private static boolean isOfferedStackStillHeld(ServerPlayerEntity giver, Offer offer) {
+	private static boolean isOfferedStackStillHeld(ServerPlayerEntity giver, GiveOffer offer) {
 		ItemStack currentStack = giver.getStackInHand(offer.hand());
-		return !currentStack.isEmpty() && ItemStack.canCombine(currentStack, offer.offeredStack());
+		return offer.matchesHeldStack(currentStack);
 	}
 
 	private static boolean isLookingAt(ServerPlayerEntity receiver, ServerPlayerEntity giver) {
@@ -231,8 +242,5 @@ public final class SecureGiveHandler {
 		Vec3d lookDirection = receiver.getRotationVec(1.0F).normalize();
 		Vec3d directionToGiver = giver.getEyePos().subtract(receiver.getEyePos()).normalize();
 		return lookDirection.dotProduct(directionToGiver);
-	}
-
-	private record Offer(UUID receiverId, Hand hand, ItemStack offeredStack) {
 	}
 }

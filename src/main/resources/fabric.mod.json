@@ -1,9 +1,10 @@
 {
 	"schemaVersion": 1,
-	"id": "pickuphand",
+	"id": "givewithhand",
 	"version": "${version}",
-	"name": "Pickup From Hand",
-	"description": "Hand the item directly from your hands",
+	"icon": "assets/icon.png",
+	"name": "Give With Hand",
+	"description": "Give items directly from hand to hand.",
 	"authors": [
 		"putter_za"
 	],
@@ -14,20 +15,20 @@
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"net.putterz.pickuphand.PickupHandMod"
+			"net.putterz.givewithhand.GiveWithHandMod"
 		],
 		"client": [
-			"net.putterz.pickuphand.client.PickupHandClient"
+			"net.putterz.givewithhand.client.GiveWithHandClient"
 		]
 	},
 	"mixins": [
-		"pickuphand.mixins.json"
+		"givewithhand.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.15.11",
 		"minecraft": "~1.20.1",
 		"java": ">=17",
 		"fabric-api": "*",
-		"player-animator": "*"
+		"player-animator": ">=1.0.2-rc1+1.20"
 	}
 }

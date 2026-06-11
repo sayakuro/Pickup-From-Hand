@@ -1,8 +1,8 @@
 {
 	"version": 3,
-	"name": "give_item_left",
+	"name": "give_item_right",
 	"author": "putter_za",
-	"description": "Hold the left hand forward for Pickup From Hand.",
+	"description": "Hold the right hand forward for Give With Hand.",
 	"emote": {
 		"beginTick": 0,
 		"endTick": 8,
@@ -13,12 +13,12 @@
 		"moves": [
 			{
 				"tick": 0,
-				"leftArm": {
+				"rightArm": {
 					"pitch": 0,
 					"yaw": 0,
 					"roll": 0
 				},
-				"leftItem": {
+				"rightItem": {
 					"pitch": 0,
 					"yaw": 0,
 					"roll": 0
@@ -27,12 +27,12 @@
 			{
 				"tick": 4,
 				"easing": "easeInOutSine",
-				"leftArm": {
+				"rightArm": {
 					"pitch": -83,
-					"yaw": 8,
-					"roll": -6
+					"yaw": -8,
+					"roll": 6
 				},
-				"leftItem": {
+				"rightItem": {
 					"pitch": -10,
 					"yaw": 0,
 					"roll": 0
@@ -40,12 +40,12 @@
 			},
 			{
 				"tick": 8,
-				"leftArm": {
+				"rightArm": {
 					"pitch": -83,
-					"yaw": 8,
-					"roll": -6
+					"yaw": -8,
+					"roll": 6
 				},
-				"leftItem": {
+				"rightItem": {
 					"pitch": -10,
 					"yaw": 0,
 					"roll": 0

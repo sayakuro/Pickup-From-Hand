@@ -1,18 +1,18 @@
-package net.putterz.pickuphand.client;
+package net.putterz.givewithhand.client;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.util.Hand;
-import net.putterz.pickuphand.network.PickupHandPackets;
+import net.putterz.givewithhand.network.GiveWithHandPackets;
 
 import java.util.UUID;
 
-final class PickupHandClientNetworking {
-	private PickupHandClientNetworking() {
+final class GiveWithHandClientNetworking {
+	private GiveWithHandClientNetworking() {
 	}
 
 	static void register() {
-		ClientPlayNetworking.registerGlobalReceiver(PickupHandPackets.OFFER_STATE, (client, handler, buf, responseSender) -> {
+		ClientPlayNetworking.registerGlobalReceiver(GiveWithHandPackets.OFFER_STATE, (client, handler, buf, responseSender) -> {
 			UUID playerId = buf.readUuid();
 			boolean active = buf.readBoolean();
 			Hand hand = buf.readEnumConstant(Hand.class);

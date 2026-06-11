@@ -1,4 +1,4 @@
-package net.putterz.pickuphand.mixin.client;
+package net.putterz.givewithhand.mixin.client;
 
 import com.mojang.authlib.GameProfile;
 import dev.kosmx.playerAnim.api.layered.IAnimation;
@@ -11,23 +11,23 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import net.putterz.pickuphand.client.GivingItemAnimation;
-import net.putterz.pickuphand.client.PickupHandAnimatedPlayer;
+import net.putterz.givewithhand.client.GiveWithHandAnimatedPlayer;
+import net.putterz.givewithhand.client.GivingItemAnimation;
 
 @Mixin(AbstractClientPlayerEntity.class)
-public abstract class AbstractClientPlayerEntityAnimationMixin implements PickupHandAnimatedPlayer {
+public abstract class AbstractClientPlayerEntityAnimationMixin implements GiveWithHandAnimatedPlayer {
 	@Unique
-	private final ModifierLayer<IAnimation> pickuphand$animationLayer = new ModifierLayer<>();
+	private final ModifierLayer<IAnimation> givewithhand$animationLayer = new ModifierLayer<>();
 
 	@Inject(method = "<init>", at = @At("RETURN"))
-	private void pickuphand$registerAnimationLayer(ClientWorld world, GameProfile profile, CallbackInfo ci) {
+	private void givewithhand$registerAnimationLayer(ClientWorld world, GameProfile profile, CallbackInfo ci) {
 		AbstractClientPlayerEntity player = (AbstractClientPlayerEntity) (Object) this;
-		PlayerAnimationAccess.getPlayerAnimLayer(player).addAnimLayer(1200, this.pickuphand$animationLayer);
+		PlayerAnimationAccess.getPlayerAnimLayer(player).addAnimLayer(1200, this.givewithhand$animationLayer);
 		GivingItemAnimation.applyToPlayer(player);
 	}
 
 	@Override
-	public ModifierLayer<IAnimation> pickuphand$getAnimationLayer() {
-		return this.pickuphand$animationLayer;
+	public ModifierLayer<IAnimation> givewithhand$getAnimationLayer() {
+		return this.givewithhand$animationLayer;
 	}
 }

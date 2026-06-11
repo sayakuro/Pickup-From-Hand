@@ -1,4 +1,4 @@
-package net.putterz.pickuphand.client;
+package net.putterz.givewithhand.client;
 
 import dev.kosmx.playerAnim.api.firstPerson.FirstPersonConfiguration;
 import dev.kosmx.playerAnim.api.firstPerson.FirstPersonMode;
@@ -13,15 +13,15 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.Arm;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
-import net.putterz.pickuphand.PickupHandMod;
+import net.putterz.givewithhand.GiveWithHandMod;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public final class GivingItemAnimation {
-	private static final Identifier RIGHT_HAND_ANIMATION = new Identifier(PickupHandMod.MOD_ID, "give_item_right");
-	private static final Identifier LEFT_HAND_ANIMATION = new Identifier(PickupHandMod.MOD_ID, "give_item_left");
+	private static final Identifier RIGHT_HAND_ANIMATION = GiveWithHandMod.id("give_item_right");
+	private static final Identifier LEFT_HAND_ANIMATION = GiveWithHandMod.id("give_item_left");
 	private static final Map<UUID, Hand> GIVING_PLAYERS = new HashMap<>();
 
 	private GivingItemAnimation() {
@@ -94,6 +94,6 @@ public final class GivingItemAnimation {
 	}
 
 	private static ModifierLayer<IAnimation> animationLayer(AbstractClientPlayerEntity player) {
-		return ((PickupHandAnimatedPlayer) player).pickuphand$getAnimationLayer();
+		return ((GiveWithHandAnimatedPlayer) player).givewithhand$getAnimationLayer();
 	}
 }
